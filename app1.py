@@ -467,7 +467,7 @@ with tabs[1]:
         ax_bar.set_xlabel("상관계수", fontsize=8)
         style_axis(ax_bar)
         
-        st.pyplot(fig_bar, use_container_width=True)    # 컬럼너비맞춤
+        st.pyplot(fig_bar, width='stretch')    # 컬럼너비맞춤
 
     with right:
         st.markdown("##### (2) 수치형 특성 간 상관관계 히트맵")
@@ -496,7 +496,7 @@ with tabs[1]:
         style_axis(ax_hm)
         
         # col2 영역에 그래프 출력
-        st.pyplot(fig_hm, use_container_width=True)
+        st.pyplot(fig_hm, width='stretch')
 
 
     st.markdown("#### ")
@@ -523,7 +523,7 @@ with tabs[1]:
 
         style_axis(ax_kde)
         
-        st.pyplot(fig_kde, use_container_width=True)
+        st.pyplot(fig_kde, width='stretch')
 
     with right:
         st.markdown("##### (4) 한 곡당 평균 청취 시간에 따른 분포")
@@ -546,7 +546,7 @@ with tabs[1]:
 
         style_axis(ax_kde)
         
-        st.pyplot(fig_kde, use_container_width=True)
+        st.pyplot(fig_kde, width='stretch')
 
     st.markdown("#### ")
     left, right = st.columns([1, 1])
@@ -569,7 +569,7 @@ with tabs[1]:
 
         style_axis(ax_kde)
         
-        st.pyplot(fig_kde, use_container_width=True)
+        st.pyplot(fig_kde, width='stretch')
         
 
     # with right:
