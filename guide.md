@@ -10,4 +10,4 @@
 
 
 ## 'app 실행' 명령어
-- uv run streamlit run app.py
+- uv run streamlit run app1.py
