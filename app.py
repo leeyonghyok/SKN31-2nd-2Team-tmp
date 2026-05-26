@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import html
+import io
 import warnings
 from typing import Any
 
@@ -71,6 +72,11 @@ def reset_model_flow_state() -> None:
     for key in keys:
         st.session_state.pop(key, None)
 
+def reset_data_flow_state() -> None:
+    reset_model_flow_state()
+    for key in ["model_name", "model_flow_model_name", "eda_cat", "eda_num"]:
+        st.session_state.pop(key, None)
+
 
 st.set_page_config(
     page_title="Spotify Churn Prediction",
@@ -119,6 +125,10 @@ def load_data(path: str, file_mtime: float) -> pd.DataFrame:
         st.stop()
     return pd.read_csv(path)
 
+@st.cache_data
+def load_uploaded_csv(file_bytes: bytes) -> pd.DataFrame:
+    return pd.read_csv(io.BytesIO(file_bytes))
+
 def is_integer_series(series: pd.Series) -> bool:
     clean = series.dropna()
     if clean.empty:
@@ -126,11 +136,9 @@ def is_integer_series(series: pd.Series) -> bool:
     return pd.api.types.is_integer_dtype(clean) or bool(np.all(np.equal(np.mod(clean, 1), 0)))
 
 def detect_target(df: pd.DataFrame) -> str:
-    candidates = ["is_churned", "churned", "churn", "is_churn", "target", "label"]
-    for c in candidates:
-        if c in df.columns:
-            return c
-    st.error("이탈 여부 컬럼을 찾지 못했습니다. is_churned / churned / churn 중 하나가 필요합니다.")
+    if "is_churned" in df.columns:
+        return "is_churned"
+    st.error("정답(label) 컬럼을 찾지 못했습니다. CSV에는 반드시 is_churned 컬럼이 있어야 합니다.")
     st.write("현재 컬럼", df.columns.tolist())
     st.stop()
 
@@ -166,7 +174,7 @@ def get_feature_names(pipe: Pipeline, numeric_cols: list[str], categorical_cols:
         names.extend(ohe.get_feature_names_out(categorical_cols).tolist())
     return names
 
-def build_model(model_name: str, params: dict[str, Any]):
+def build_model(model_name: str, params: dict[str, Any], *, svm_probability: bool = True):
     if model_name == "Logistic Regression":
         return LogisticRegression(C=params["C"], max_iter=1000, random_state=RANDOM_STATE)
     if model_name == "SGD Classifier":
@@ -174,7 +182,7 @@ def build_model(model_name: str, params: dict[str, Any]):
     if model_name == "KNN":
         return KNeighborsClassifier(n_neighbors=params["n_neighbors"])
     if model_name == "SVM":
-        return SVC(C=params["C"], kernel=params["kernel"], probability=True, random_state=RANDOM_STATE)
+        return SVC(C=params["C"], kernel=params["kernel"], probability=svm_probability, random_state=RANDOM_STATE)
     if model_name == "Decision Tree":
         return DecisionTreeClassifier(max_depth=params["max_depth"], min_samples_split=params["min_samples_split"], random_state=RANDOM_STATE)
     if model_name == "Random Forest":
@@ -288,9 +296,21 @@ def style_axis(ax):
         ax.spines[spine].set_visible(False)
 
 # 데이터 준비
-df = load_data(DATA_PATH, os.path.getmtime(DATA_PATH) if os.path.exists(DATA_PATH) else 0)
+uploaded_csv = st.session_state.get("uploaded_csv")
+if uploaded_csv:
+    df = load_uploaded_csv(uploaded_csv["bytes"])
+    data_source_name = uploaded_csv["name"]
+    data_source_caption = "업로드한 CSV"
+else:
+    df = load_data(DATA_PATH, os.path.getmtime(DATA_PATH) if os.path.exists(DATA_PATH) else 0)
+    data_source_name = DATA_PATH
+    data_source_caption = "기본 CSV"
+
 target_col = detect_target(df)
 feature_cols, numeric_cols, categorical_cols = split_columns(df, target_col)
+if not feature_cols:
+    st.error("학습에 사용할 특성이 없습니다. is_churned를 제외한 특성 컬럼이 최소 1개 필요합니다.")
+    st.stop()
 X = df[feature_cols]
 y = df[target_col]
 if y.dtype == "object":
@@ -321,7 +341,33 @@ tabs = st.tabs(tab_labels)
 
 with tabs[0]:
     st.markdown("### 파일 정보")
-    st.caption("파일명: spotify_churn_dataset.csv, 출처: Kaggle")
+    uploaded_file = st.file_uploader("CSV 파일 업로드", type=["csv"], key="csv_uploader")
+    if uploaded_file is not None:
+        file_bytes = uploaded_file.getvalue()
+        try:
+            preview_df = pd.read_csv(io.BytesIO(file_bytes), nrows=5)
+        except Exception as exc:
+            st.error(f"CSV를 읽을 수 없습니다: {exc}")
+        else:
+            if "is_churned" not in preview_df.columns:
+                st.error("업로드한 CSV에는 정답(label) 컬럼인 is_churned가 반드시 있어야 합니다.")
+            else:
+                current_upload = st.session_state.get("uploaded_csv")
+                if (
+                    current_upload is None
+                    or current_upload.get("name") != uploaded_file.name
+                    or current_upload.get("bytes") != file_bytes
+                ):
+                    st.session_state["uploaded_csv"] = {"name": uploaded_file.name, "bytes": file_bytes}
+                    reset_data_flow_state()
+                    st.rerun()
+
+    source_left, source_right = st.columns([3, 1])
+    source_left.caption(f"{data_source_caption}: {data_source_name}")
+    if uploaded_csv and source_right.button("기본 CSV로 되돌리기", key="reset_default_csv"):
+        st.session_state.pop("uploaded_csv", None)
+        reset_data_flow_state()
+        st.rerun()
 
     c1, c2, c3 = st.columns(3)
     c1.metric("행", f"{df.shape[0]:,}")
@@ -433,18 +479,16 @@ with tabs[3]:
     if previous_flow_model != model_name:
         reset_model_flow_state()
         st.session_state["model_flow_model_name"] = model_name
-        if previous_flow_model is not None:
-            st.rerun()
 
     grid_map = {
-        "Logistic Regression": {"model__C": [0.1, 1.0, 3.0, 10.0]},
-        "SGD Classifier": {"model__alpha": [0.0001, 0.001, 0.01, 0.1]},
-        "KNN": {"model__n_neighbors": [3, 5, 7, 11, 15]},
-        "SVM": {"model__C": [0.1, 1.0, 3.0], "model__kernel": ["rbf", "linear"]},
-        "Decision Tree": {"model__max_depth": [3, 5, 7, 10, 15], "model__min_samples_split": [2, 5, 10]},
-        "Random Forest": {"model__n_estimators": [50, 100, 150], "model__max_depth": [3, 5, 8, 12], "model__min_samples_split": [2, 5]},
-        "Gradient Boosting": {"model__n_estimators": [50, 100, 150], "model__learning_rate": [0.05, 0.1, 0.2], "model__max_depth": [2, 3, 5]},
-        "AdaBoost": {"model__n_estimators": [50, 100, 150], "model__learning_rate": [0.05, 0.1, 0.3]},
+        "Logistic Regression": {"model__C": [0.1, 1.0, 10.0]},
+        "SGD Classifier": {"model__alpha": [0.0001, 0.001, 0.01]},
+        "KNN": {"model__n_neighbors": [3, 5, 11]},
+        "SVM": {"model__C": [0.5, 1.0, 3.0], "model__kernel": ["rbf"]},
+        "Decision Tree": {"model__max_depth": [3, 7, 12], "model__min_samples_split": [2, 5]},
+        "Random Forest": {"model__n_estimators": [50, 100], "model__max_depth": [5, 10], "model__min_samples_split": [2, 5]},
+        "Gradient Boosting": {"model__n_estimators": [50, 100], "model__learning_rate": [0.05, 0.1], "model__max_depth": [2, 3]},
+        "AdaBoost": {"model__n_estimators": [50, 100], "model__learning_rate": [0.05, 0.1]},
     }
     base_defaults = {"C": 1.0, "kernel": "rbf", "alpha": 0.001, "n_neighbors": 5, "max_depth": 5, "min_samples_split": 2, "n_estimators": 100, "learning_rate": 0.1}
     if model_name == "모델을 선택하세요":
@@ -454,9 +498,9 @@ with tabs[3]:
         if not has_grid_result:
             with st.spinner("선택한 모델의 최적 하이퍼파라미터를 탐색하는 중입니다..."):
                 pre = make_preprocessor(numeric_cols, categorical_cols)
-                estimator = build_model(model_name, base_defaults)
+                estimator = build_model(model_name, base_defaults, svm_probability=False)
                 tune_pipe = Pipeline([("preprocess", pre), ("model", estimator)])
-                grid = GridSearchCV(tune_pipe, grid_map[model_name], cv=5, scoring="f1", n_jobs=1)
+                grid = GridSearchCV(tune_pipe, grid_map[model_name], cv=3, scoring="f1", n_jobs=-1)
                 grid.fit(X, y)
                 st.session_state["best_params"] = grid.best_params_
                 st.session_state["best_score"] = grid.best_score_
