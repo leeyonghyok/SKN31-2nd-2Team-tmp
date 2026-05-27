@@ -12,6 +12,7 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
 import preprocessing_util
+import imblearn
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
@@ -31,20 +32,15 @@ plt.rcParams["font.family"] = "Malgun Gothic"
 plt.rcParams["axes.unicode_minus"] = False
 
 COLUMN_KOR = {
-    "user_id": "사용자 ID",
-    "gender": "성별",
-    "age": "나이",
-    "country": "국가",
-    "subscription_type": "구독 유형",
-    "listening_time": "청취 시간",
-    "songs_played_per_day": "일일 재생 곡 수",
-    "skip_rate": "곡 스킵 비율",
-    "device_type": "기기 유형",
-    "ads_listened_per_week": "주간 광고 청취 수",
-    "offline_listening": "오프라인 청취 여부",
-    "is_churned": "이탈 여부",
-    "avg_time_per_song": "한 곡당 평균 청취 시간",
-    "underutilized_premium": "오프라인 기능 미사용 유저 수",
+    'CustomerID': '사용자 ID',
+    'Age': '나이',
+    'Gender': '성별',
+    'Tenure': '가입 기간',
+    'MonthlyCharges': '월 요금',
+    'Contract': '계약 유형',
+    'PaymentMethod': '결제 방법',
+    'TotalCharges': '총 요금',
+    'Churn': '이탈 여부',
 }
 
 def kor_col(col: str) -> str:
@@ -119,7 +115,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-DATA_PATH = "data/spotify_churn_with_features.csv"
+DATA_PATH = "data/synthetic_customer_churn_100k.csv"
 RANDOM_STATE = 42
 
 @st.cache_data
@@ -140,15 +136,15 @@ def is_integer_series(series: pd.Series) -> bool:
     return pd.api.types.is_integer_dtype(clean) or bool(np.all(np.equal(np.mod(clean, 1), 0)))
 
 def detect_target(df: pd.DataFrame) -> str:
-    if "is_churned" in df.columns:
-        return "is_churned"
-    st.error("정답(label) 컬럼을 찾지 못했습니다. CSV에는 반드시 is_churned 컬럼이 있어야 합니다.")
+    if "Churn" in df.columns:
+        return "Churn"
+    st.error("정답(label) 컬럼을 찾지 못했습니다. CSV에는 반드시 Churn 컬럼이 있어야 합니다.")
     st.write("현재 컬럼", df.columns.tolist())
     st.stop()
 
 def split_columns(df: pd.DataFrame, target_col: str) -> tuple[list[str], list[str], list[str]]:
     drop_cols = [target_col]
-    id_cols = [c for c in df.columns if c.lower().endswith("id") or c.lower() in {"user_id", "id"}]
+    id_cols = [c for c in df.columns if c.lower().endswith("ID") or c.lower() in {"CustomerID", "id"}]
     feature_cols = [c for c in df.columns if c not in drop_cols + id_cols]
     numeric_cols = df[feature_cols].select_dtypes(include=np.number).columns.tolist()
     categorical_cols = [c for c in feature_cols if c not in numeric_cols]
@@ -318,7 +314,7 @@ else:
 target_col = detect_target(df)
 feature_cols, numeric_cols, categorical_cols = split_columns(df, target_col)
 if not feature_cols:
-    st.error("학습에 사용할 특성이 없습니다. is_churned를 제외한 특성 컬럼이 최소 1개 필요합니다.")
+    st.error("학습에 사용할 특성이 없습니다. Churn을 제외한 특성 컬럼이 최소 1개 필요합니다.")
     st.stop()
 X = df[feature_cols]
 y = df[target_col]
@@ -359,8 +355,8 @@ with tabs[0]:
         except Exception as exc:
             st.error(f"CSV를 읽을 수 없습니다: {exc}")
         else:
-            if "is_churned" not in preview_df.columns:
-                st.error("업로드한 CSV에는 정답(label) 컬럼인 is_churned가 반드시 있어야 합니다.")
+            if "Churn" not in preview_df.columns:
+                st.error("업로드한 CSV에는 정답(label) 컬럼인 Churn가 반드시 있어야 합니다.")
             else:
                 current_upload = st.session_state.get("uploaded_csv")
                 if (
@@ -449,127 +445,127 @@ with tabs[1]:
             st.pyplot(fig, width='content')
 
 
-    st.markdown("#### 3. 이탈과 특성 간의 관계 분석")
-    left, right = st.columns([1, 1])
+    # st.markdown("#### 3. 이탈과 특성 간의 관계 분석")
+    # left, right = st.columns([1, 1])
 
-    # 시각화용 임시 리스트 생성: numeric_cols에서 'underutilized_premium'만 제외
-    plot_cols = [col for col in numeric_cols if col != 'underutilized_premium']
+    # # # 시각화용 임시 리스트 생성: numeric_cols에서 'underutilized_premium'만 제외
+    # # plot_cols = [col for col in numeric_cols if col != 'underutilized_premium']
 
-    with left:
-        st.markdown("##### (1) 이탈과 상관관계가 큰 수치형 특성")
-        # numeric_cols 대신 plot_cols를 사용합니다.
-        corr_df = df[plot_cols + [target_col]].corr(numeric_only=True)[target_col].drop(target_col).sort_values(key=abs, ascending=False)
+    # with left:
+    #     st.markdown("##### (1) 이탈과 상관관계가 큰 수치형 특성")
+    #     # numeric_cols 대신 plot_cols를 사용합니다.
+    #     corr_df = df[plot_cols + [target_col]].corr(numeric_only=True)[target_col].drop(target_col).sort_values(key=abs, ascending=False)
         
-        # 가로 폭을 줄여 컴팩트하게 설정 (예: 4.5 x 3.5)
-        fig_bar, ax_bar = compact_fig(4.5, 3.5)
-        corr_df.head(8).sort_values().plot(kind="barh", ax=ax_bar, color="#f97316")
-        ax_bar.set_title("이탈과 상관관계 지표", fontsize=10)
-        ax_bar.set_xlabel("상관계수", fontsize=8)
-        style_axis(ax_bar)
+    #     # 가로 폭을 줄여 컴팩트하게 설정 (예: 4.5 x 3.5)
+    #     fig_bar, ax_bar = compact_fig(4.5, 3.5)
+    #     corr_df.head(8).sort_values().plot(kind="barh", ax=ax_bar, color="#f97316")
+    #     ax_bar.set_title("이탈과 상관관계 지표", fontsize=10)
+    #     ax_bar.set_xlabel("상관계수", fontsize=8)
+    #     style_axis(ax_bar)
         
-        st.pyplot(fig_bar, width='stretch')    # 컬럼너비맞춤
+    #     st.pyplot(fig_bar, width='stretch')    # 컬럼너비맞춤
 
-    with right:
-        st.markdown("##### (2) 수치형 특성 간 상관관계 히트맵")
-        # 마찬가지로 numeric_cols 대신 plot_cols를 사용합니다.
-        corr_matrix = df[plot_cols + [target_col]].corr(numeric_only=True)
+    # with right:
+    #     st.markdown("##### (2) 수치형 특성 간 상관관계 히트맵")
+    #     # 마찬가지로 numeric_cols 대신 plot_cols를 사용합니다.
+    #     corr_matrix = df[plot_cols + [target_col]].corr(numeric_only=True)
         
-        # 바 차트와 일관된 크기로 설정 (4.5 x 3.5)
-        fig_hm, ax_hm = compact_fig(4.5, 3.5)
+    #     # 바 차트와 일관된 크기로 설정 (4.5 x 3.5)
+    #     fig_hm, ax_hm = compact_fig(4.5, 3.5)
         
-        sns.heatmap(
-            corr_matrix, 
-            annot=True, 
-            fmt=".2f", 
-            cmap="coolwarm", 
-            vmin=-1, vmax=1, 
-            ax=ax_hm, 
-            annot_kws={"size": 6},  # 가로 폭이 좁아지므로 글자 크기를 더 축소
-            cbar=False,             # 양 옆 균형을 위해 컬러바 제거 (선택 사항)
-            linewidths=0.5
-        )
-        ax_hm.set_title("특성 간 상관관계 매트릭스", fontsize=10)
+    #     sns.heatmap(
+    #         corr_matrix, 
+    #         annot=True, 
+    #         fmt=".2f", 
+    #         cmap="coolwarm", 
+    #         vmin=-1, vmax=1, 
+    #         ax=ax_hm, 
+    #         annot_kws={"size": 6},  # 가로 폭이 좁아지므로 글자 크기를 더 축소
+    #         cbar=False,             # 양 옆 균형을 위해 컬러바 제거 (선택 사항)
+    #         linewidths=0.5
+    #     )
+    #     ax_hm.set_title("특성 간 상관관계 매트릭스", fontsize=10)
         
-        # 좁은 공간에서 글자가 겹치지 않도록 세밀하게 조절
-        ax_hm.tick_params(axis='x', labelsize=7, rotation=45)
-        ax_hm.tick_params(axis='y', labelsize=7, rotation=0)
-        style_axis(ax_hm)
+    #     # 좁은 공간에서 글자가 겹치지 않도록 세밀하게 조절
+    #     ax_hm.tick_params(axis='x', labelsize=7, rotation=45)
+    #     ax_hm.tick_params(axis='y', labelsize=7, rotation=0)
+    #     style_axis(ax_hm)
         
-        # col2 영역에 그래프 출력
-        st.pyplot(fig_hm, width='stretch')
+    #     # col2 영역에 그래프 출력
+    #     st.pyplot(fig_hm, width='stretch')
 
 
-    st.markdown("#### ")
-    left, right = st.columns([1, 1])
+    # st.markdown("#### ")
+    # left, right = st.columns([1, 1])
 
-    with left:
-        st.markdown("##### (3) 총 청취시간에 따른 분포")
-        fig_kde, ax_kde = compact_fig(4.5, 3.5)
+    # with left:
+    #     st.markdown("##### (3) 총 청취시간에 따른 분포")
+    #     fig_kde, ax_kde = compact_fig(4.5, 3.5)
         
-        sns.kdeplot(
-            data=df,
-            x="listening_time",
-            hue="is_churned",
-            fill=True,
-            common_norm=False,
-            palette="crest",
-            alpha=0.5,
-            ax=ax_kde
-        )
+    #     sns.kdeplot(
+    #         data=df,
+    #         x="listening_time",
+    #         hue="Churn",
+    #         fill=True,
+    #         common_norm=False,
+    #         palette="crest",
+    #         alpha=0.5,
+    #         ax=ax_kde
+    #     )
         
-        ax_kde.set_title("총 청취 시간에 따른 이탈/유지 분포 (KDE)", fontsize=10)
-        ax_kde.set_xlabel("총 청취 시간 (분)", fontsize=8)
-        ax_kde.set_ylabel("밀도 (Density)", fontsize=8)
+    #     ax_kde.set_title("총 청취 시간에 따른 이탈/유지 분포 (KDE)", fontsize=10)
+    #     ax_kde.set_xlabel("총 청취 시간 (분)", fontsize=8)
+    #     ax_kde.set_ylabel("밀도 (Density)", fontsize=8)
 
-        style_axis(ax_kde)
+    #     style_axis(ax_kde)
         
-        st.pyplot(fig_kde, width='stretch')
+    #     st.pyplot(fig_kde, width='stretch')
 
-    with right:
-        st.markdown("##### (4) 한 곡당 평균 청취 시간에 따른 분포")
-        fig_kde, ax_kde = compact_fig(4.5, 3.5)
+    # with right:
+    #     st.markdown("##### (4) 한 곡당 평균 청취 시간에 따른 분포")
+    #     fig_kde, ax_kde = compact_fig(4.5, 3.5)
         
-        sns.kdeplot(
-            data=df,
-            x="avg_time_per_song",
-            hue="is_churned",
-            fill=True,
-            common_norm=False,
-            palette="crest",
-            alpha=0.5,
-            ax=ax_kde
-        )
+    #     sns.kdeplot(
+    #         data=df,
+    #         x="avg_time_per_song",
+    #         hue="is_churned",
+    #         fill=True,
+    #         common_norm=False,
+    #         palette="crest",
+    #         alpha=0.5,
+    #         ax=ax_kde
+    #     )
         
-        ax_kde.set_title("한 곡당 평균 청취 시간에 따른 이탈/유지 분포 (KDE)", fontsize=10)
-        ax_kde.set_xlabel("한 곡당 평균 청취 시간 (분)", fontsize=8)
-        ax_kde.set_ylabel("밀도 (Density)", fontsize=8)
+    #     ax_kde.set_title("한 곡당 평균 청취 시간에 따른 이탈/유지 분포 (KDE)", fontsize=10)
+    #     ax_kde.set_xlabel("한 곡당 평균 청취 시간 (분)", fontsize=8)
+    #     ax_kde.set_ylabel("밀도 (Density)", fontsize=8)
 
-        style_axis(ax_kde)
+    #     style_axis(ax_kde)
         
-        st.pyplot(fig_kde, width='stretch')
+    #     st.pyplot(fig_kde, width='stretch')
 
-    st.markdown("#### ")
-    left, right = st.columns([1, 1])
+    # st.markdown("#### ")
+    # left, right = st.columns([1, 1])
 
-    with left:
-        st.markdown("##### (5) 구독 요금제별 분포")
-        # fig_kde, ax_kde = compact_fig(4.5, 3.5)
+    # with left:
+    #     st.markdown("##### (5) 구독 요금제별 분포")
+    #     # fig_kde, ax_kde = compact_fig(4.5, 3.5)
 
-        sns.countplot(
-            data=df,
-            x="subscription_type",
-            hue="is_churned",
-            palette="pastel",
-            ax=ax_kde
-        )
+    #     sns.countplot(
+    #         data=df,
+    #         x="subscription_type",
+    #         hue="is_churned",
+    #         palette="pastel",
+    #         ax=ax_kde
+    #     )
         
-        ax_kde.set_title("구독 요금제 유형별 이탈/유지 유저 수", fontsize=10)
-        ax_kde.set_xlabel("구독 요금제 유형", fontsize=8)
-        ax_kde.set_ylabel("유저 수", fontsize=8)
+    #     ax_kde.set_title("구독 요금제 유형별 이탈/유지 유저 수", fontsize=10)
+    #     ax_kde.set_xlabel("구독 요금제 유형", fontsize=8)
+    #     ax_kde.set_ylabel("유저 수", fontsize=8)
 
-        style_axis(ax_kde)
+    #     style_axis(ax_kde)
         
-        st.pyplot(fig_kde, width='stretch')
+    #     st.pyplot(fig_kde, width='stretch')
         
 
     # with right:
